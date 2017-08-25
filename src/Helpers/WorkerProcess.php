@@ -13,7 +13,7 @@ use MeanEVO\Swoolient\Workers\WorkerInterface;
 
 class WorkerProcess extends Process {
 
-	const PARENT_CHECK_INTERVAL = 3;
+	const PARENT_CHECK_INTERVAL = 0.1;
 
 	/**
 	 * The process payload's fully qualified name.
@@ -86,8 +86,11 @@ class WorkerProcess extends Process {
 			$this->exitAll(abs($code) % 256);
 			return;
 		}
-		// Validate error code with exit code
-		parent::exit($code % 256);
+		$this->kill($this->pid, SIGABRT);
+		swoole_timer_after(1, function () use ($code) {
+			// Validate error code with exit code
+			parent::exit($code % 256);
+		});
 	}
 
 	/**
@@ -115,34 +118,43 @@ class WorkerProcess extends Process {
 			| === Sub-process context scope ===
 			|-----------------------------------
 			*/
-			$this->signal(SIGTERM, function () {
-				// Returns 0 for normal termination process
-				$this->exit(0);
-			});
 			$logger = LoggerFactory::create($this->name);
 			try {
 				$instance = $class->newInstance($process, ...$arguments);
 				$instance->setLogger($logger);
+				// Worker successfully initiated
+				$this->setUpListeners($instance);
 				$instance->onWorkerStart();
 			} catch (Exception $e) {
 				$logger->error($e);
 				$this->exit($e->getCode());
 				return;
 			}
-			// Worker successfully initiated
-			$this->setUpListeners($instance);
 		};
 	}
 
 	protected function setUpListeners($worker) {
-		register_shutdown_function(function () use ($worker) {
+		$this->signal(SIGABRT, function () use ($worker) {
+			// Deregister signal handler as we have been notified
+			$this->signal(SIGABRT, null);
 			$worker->onWorkerStop();
+			$this->exit(0);
 		});
+		// TODO: BUGGY - Capture variable not working with SIGTERM signal on macOS
+		// Alternate 1: use exit function from swoole_process plus shutdown handler
+		// Alternate 2: disable SIGTERM listener, use SIGABRT for graceful shutdown
+		// $this->signal(SIGTERM, function () {
+		// 	$this->exit(0);
+		// });
+		// register_shutdown_function(function () use ($worker) {
+		// 	$worker->onWorkerStop();
+		// });
 		// Check parent process existence periodically
 		$interval = self::PARENT_CHECK_INTERVAL * 1000;
 		swoole_timer_tick($interval, function () use ($worker) {
 			if (!$this->kill($this->ppid, 0)) {
-				// Parent missing, exit manually as processes are not related
+				// Parent missing, terminate manually as processes are not related
+				// $this->kill($this->pid, SIGABRT);
 				$worker->onWorkerStop();
 				$this->exit(3);
 			}

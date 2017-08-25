@@ -26,6 +26,7 @@ new class extends AbstractMaster {
 			$this->startOne(TestNode2::class),
 			$this->startOne(TestNode3::class),
 			$this->startOne(TestNode4::class),
+			$this->startOne(TestNode5::class),
 		];
 	}
 

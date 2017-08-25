@@ -4,6 +4,7 @@ namespace MeanEVO\Swoolient\Workers;
 
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\NullLogger;
+use Swoole\Event;
 
 abstract class AbstractWorker implements WorkerInterface {
 
@@ -20,7 +21,7 @@ abstract class AbstractWorker implements WorkerInterface {
 		@cli_set_process_title(env('APP_NAME') . ':' . strtoupper($process->name));
 		$this->process = $process;
 		// Pipe listener
-		swoole_event_add($process->pipe, function ($pipe) {
+		Event::add($process->pipe, function ($pipe) {
 			$this->onPipeMessage($this->process->read());
 		});
 	}

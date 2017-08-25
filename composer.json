@@ -1,6 +1,6 @@
 {
     "name": "meanevo/swoolient",
-    "description": "A swoole multiple clients manager",
+    "description": "A swoole manager for clients in multiple processes",
     "keywords": [
         "client",
         "socket",

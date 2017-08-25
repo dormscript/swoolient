@@ -5,6 +5,7 @@ namespace MeanEVO\Swoolient\Workers;
 use Exception;
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\NullLogger;
+use Swoole\Event;
 use Swoole\Process;
 use MeanEVO\Swoolient\Helpers\WorkerProcess;
 use MeanEVO\Swoolient\Workers\WorkerInterface;
@@ -57,7 +58,7 @@ abstract class AbstractMaster {
 
 	private function setUpPipeForwarder($process) {
 		// Set a message listener for pipe
-		swoole_event_add($process->pipe, function ($pipe) use ($process) {
+		Event::add($process->pipe, function ($pipe) use ($process) {
 			// Strip out worker name, then forward message to the worker involved
 			$message = $process->read();
 			if ($worker = $this->getWorkerByName($message[0])) {
@@ -83,7 +84,7 @@ abstract class AbstractMaster {
 			// Deregister callback on SIGCHLD signal
 			// Process::signal(SIGCHLD, null);
 			foreach ($this->workers as $worker) {
-				Process::kill($worker->pid, SIGTERM);
+				Process::kill($worker->pid, SIGABRT);
 			}
 			exit();
 		});
@@ -94,28 +95,30 @@ abstract class AbstractMaster {
 				$worker = $this->workers[$pid];
 				// Remove exited worker handler reference
 				unset($this->workers[$pid]);
-				if ($code !== 0) {
-					$reason = 'code ' . $code;
-				} elseif ($signal !== 0) {
+				if ($signal > 0) {
 					$reason = 'signal ' . $signal;
+				} else {
+					$reason = 'code ' . $code;
 				}
-				if (empty($reason)) {
-					// Worker initiated exit aka graceful shutdown
-					$this->logger->notice('Worker-{name}({pid}) exited gracefully', [
-						'name' => $worker->name,
-						'pid' => $pid,
-					]);
-					break;
-				}
+				// if (empty($reason)) {
+				// 	// Worker initiated exit aka graceful shutdown
+				// 	$this->logger->notice('Worker-{name}({pid}) exited gracefully', [
+				// 		'name' => $worker->name,
+				// 		'pid' => $pid,
+				// 	]);
+				// 	break;
+				// }
 				// Schedule process restarting
 				$this->logger->critical(
-					'Worker-{name}({pid}) exited by {reason}, restarting...',
+					'Worker-{name}({pid}) exited with {reason}, restarting...',
 					[
 						'name' => $worker->name,
 						'pid' => $pid,
-						'reason' => $reason,
+						'reason' => $reason ?? 'exit code 0',
 					]
 				);
+				// $worker = $this->startOne($worker->fqn);
+				// $this->workers[$worker->pid] = $worker;
 				$pid = $worker->start();
 				$this->workers[$pid] = $worker;
 			}
