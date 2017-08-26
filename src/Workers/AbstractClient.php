@@ -40,7 +40,7 @@ abstract class AbstractClient extends AbstractWorker {
 	 *
 	 * @var array
 	 */
-	protected $addr;
+	protected $dsn;
 
 	/**
 	 * The connection protocol to use.
@@ -64,7 +64,7 @@ abstract class AbstractClient extends AbstractWorker {
 		} else {
 			unset($this->protocol);
 		}
-		$scheme = $this->setAddress($this->addr);
+		$scheme = $this->setAddress($this->dsn);
 		// Initialize client
 		$this->client = new Client($scheme, SWOOLE_SOCK_ASYNC);
 		$this->client->set($this->protocol->arguments ?? [] + self::CONN_ARGS);
@@ -99,8 +99,8 @@ abstract class AbstractClient extends AbstractWorker {
 	 * @return void
 	 */
 	public function onConnect(Client $client) {
-		$this->logger->debug('Connection established with {dst} via {src}', [
-			'dst' => vsprintf('%1$s:%2$d', $this->addr),
+		$this->logger->debug('Connection established with {dsn} via {src}', [
+			'dsn' => vsprintf('%1$s:%2$d', $this->dsn),
 			'src' => vsprintf('%2$s:%1$d', $this->client->getSockName()),
 		]);
 	}
@@ -168,7 +168,7 @@ abstract class AbstractClient extends AbstractWorker {
 	 * @return bool
 	 */
 	public function connect() {
-		return $this->client->connect(...$this->addr);
+		return $this->client->connect(...$this->dsn);
 	}
 
 	/**
@@ -196,21 +196,21 @@ abstract class AbstractClient extends AbstractWorker {
 	/**
 	 * Set the connection destination address.
 	 *
-	 * @param array|string $addr
+	 * @param array|string $dsn
 	 * @return void|int SWOOLE_SOCK_X(SCHEME)
 	 */
-	public function setAddress($addr) {
-		if (is_array($addr)) {
-			$addr = $addr[mt_rand(0, count($addr) - 1)];
+	public function setAddress($dsn) {
+		if (is_array($dsn)) {
+			$dsn = $dsn[mt_rand(0, count($dsn) - 1)];
 		}
-		if (!filter_var($addr, FILTER_VALIDATE_URL)) {
-			if (!filter_var(env($addr), FILTER_VALIDATE_URL)) {
+		if (!filter_var($dsn, FILTER_VALIDATE_URL)) {
+			if (!filter_var(env($dsn), FILTER_VALIDATE_URL)) {
 				return;
 			}
-			$addr = env($addr);
+			$dsn = env($dsn);
 		}
-		list($host, $port, $scheme) = parse_url_swoole($addr);
-		$this->addr = [$host, $port];
+		list($host, $port, $scheme) = parse_url_swoole($dsn);
+		$this->dsn = [$host, $port];
 		return $scheme;
 	}
 

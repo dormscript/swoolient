@@ -18,8 +18,11 @@
         "php": ">=7.0.0",
         "ext-swoole": "^2.0",
         "vlucas/phpdotenv": "^2.4",
-        "monolog/monolog": "^1.23",
-        "bramus/monolog-colored-line-formatter": "~2.0"
+        "monolog/monolog": "^1.23"
+    },
+    "suggest": {
+        "bramus/monolog-colored-line-formatter": "~2.0",
+        "sentry/sentry": "^1.7"
     },
     "autoload": {
         "psr-4": {
