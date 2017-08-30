@@ -159,6 +159,9 @@ abstract class AbstractClient extends AbstractWorker {
 		if ($this->isClosedGracefully()) {
 			return;
 		}
+		if (empty($this->client->errCode)) {
+			$this->process->exit(SOCKET_ECONNABORTED);
+		}
 		$this->connect();
 	}
 
@@ -181,7 +184,6 @@ abstract class AbstractClient extends AbstractWorker {
 	protected function send($message, bool $handleResending = true) {
 		// Encode message if protocol encoder exists
 		if (isset($this->protocol)) {
-			// Pass multiple arguments as array to encoder
 			$message = call_user_func([$this->protocol, 'encode'], $message);
 		}
 		return $this->sendBuffer($message, $handleResending);
