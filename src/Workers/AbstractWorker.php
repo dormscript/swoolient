@@ -16,7 +16,7 @@ abstract class AbstractWorker implements WorkerInterface {
 	 * @var \Helpers\WorkerProcess
 	 */
 	protected $process;
-	private $pipeListeners;
+	private $waitingForPipe = [];
 
 	public function __construct($process) {
 		@cli_set_process_title(env('APP_NAME') . ':' . strtoupper($process->name));
@@ -54,12 +54,9 @@ abstract class AbstractWorker implements WorkerInterface {
 	public function onPipe($pipe) {
 		$payload = $this->process->read();
 		$message = $payload[0];
-		// Notify registered timer on message arriving
-		foreach ($this->pipeListeners[$message] ?? [] as &$listener) {
-			if (call_user_func($listener)) {
-				continue;
-			}
-			// Returns false => one-off listener, deregister
+		// Notify registered timer on message arriving at once
+		foreach ($this->waitingForPipe[$message] ?? [] as &$listener) {
+			call_user_func($listener);
 			unset($listener);
 		}
 		if (is_callable([$this, $message])) {
@@ -77,7 +74,7 @@ abstract class AbstractWorker implements WorkerInterface {
 	 * @return void
 	 */
 	protected function onPipeMessage($message) {
-		$this->logger->warn('Pipe-{number} received: {message}', [
+		$this->logger->debug('Pipe-{number} received: {message}', [
 			'number' => $this->process->pipe,
 			'message' => $message,
 		]);
@@ -99,27 +96,39 @@ abstract class AbstractWorker implements WorkerInterface {
 		$caller = function ($dst, $args = null) {
 			list($worker, $function) = $dst;
 			$this->process->write($worker, $function, ...(array) $args);
+			return false;
 		};
 		$callerArgs = array_slice(func_get_args(), 0, 2);
 		if (!empty($expected) && $timeout > 0) {
 			// Register onTimeout callback
 			$timerId = swoole_timer_tick(
 				$timeout * 1000,
-				function ($_, $callback) use ($callerArgs, $expected, $timeout) {
-					$this->logger->warn('f({f}) expected response "{e}" not arriving in {i}s', [
+				function ($timerId, $callback) use ($callerArgs, $expected, $timeout) {
+					$msg = <<<EOF
+f({f}) expected response "{e}" not arriving in {i}s, trying to recover
+EOF;
+					$this->logger->warn($msg, [
 						'f' => $callerArgs[0][1],
 						'e' => $expected,
 						'i' => $timeout,
+						'action' => ', reying to recover'
 					]);
-					call_user_func_array($callback, $callerArgs);
+					if (call_user_func_array($callback, $callerArgs)) {
+						// Returns true => solved, stop ticking for one-off callback
+						swoole_timer_clear($timerId);
+					}
 				},
 				is_callable($onTimeout) ? $onTimeout : $caller
 			);
-			$this->pipeListeners[$expected][] = function () use ($timerId) {
+			$this->registerForPipeMessage($expected, function () use ($timerId) {
 				@swoole_timer_clear($timerId);
-			};
+			});
 		}
 		call_user_func_array($caller, $callerArgs);
+	}
+
+	protected function registerForPipeMessage(string $message, callable $callback) {
+		$this->waitingForPipe[$message][] = $callback;
 	}
 
 }

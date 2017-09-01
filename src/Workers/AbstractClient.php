@@ -8,7 +8,6 @@ use MeanEVO\Swoolient\Protocols\ProtocolInterface;
 abstract class AbstractClient extends AbstractWorker {
 
 	const RETRY_CONN_INTERVAL = 15;
-	const RETRY_SEND_INTERVAL = 5;
 	const CONN_ARGS = [
 		'package_max_length' => 2048000,	// Maximum protocol context length
 		'socket_buffer_size' => 1024 * 1024 * 2,	// 2MB buffer
@@ -19,16 +18,6 @@ abstract class AbstractClient extends AbstractWorker {
 		SOCKET_ENETRESET,		// Network dropped connection on reset
 		SOCKET_ECONNRESET,		// Connection reset by peer
 		SOCKET_ENOBUFS,			// No buffer space available
-		SOCKET_ETIMEDOUT,		// Connection timed out
-		SOCKET_ECONNREFUSED,	// Connection refused
-		SOCKET_EHOSTDOWN,		// Host is down
-		SOCKET_EHOSTUNREACH,	// No route to host
-	];
-	const RESEND_ERRNO = [
-		SOCKET_ECONNRESET,		// Connection reset by peer
-		// SOCKET_EISCONN,		// Socket is already connected
-		SOCKET_ENOTCONN,		// Socket is not connected
-		// SOCKET_ESHUTDOWN,	// Cannot send after socket shutdown
 		SOCKET_ETIMEDOUT,		// Connection timed out
 		SOCKET_ECONNREFUSED,	// Connection refused
 		SOCKET_EHOSTDOWN,		// Host is down
@@ -138,7 +127,7 @@ abstract class AbstractClient extends AbstractWorker {
 	public function onError(Client $client) {
 		if (in_array($client->errCode, self::RECOVER_ERRNO)) {
 			// Schedule client reconnecting
-			$interval = self::RETRY_CONN_INTERVAL;
+			$interval = env('RETRY_CONN_INTERVAL', self::RETRY_CONN_INTERVAL);
 			swoole_timer_after($interval * 1000, [$this, 'connect']);
 			$this->logger->error(socket_strerror($client->errCode) . '{retry}', [
 				'retry' => ", reconnecting in ${interval} seconds",
@@ -178,15 +167,30 @@ abstract class AbstractClient extends AbstractWorker {
 	 * Send message(pending encode) to endpoint.
 	 *
 	 * @param mixed $message The message to send(encode)
-	 * @param bool $handleResending Whether resending message on failure
 	 * @return bool|int
 	 */
-	protected function send($message, bool $handleResending = true) {
-		// Encode message if protocol encoder exists
+	protected function send($message) {
+		// Encode message(s) if protocol encoder exists
 		if (isset($this->protocol)) {
-			$message = call_user_func([$this->protocol, 'encode'], $message);
+			$buffer = call_user_func_array(
+				[$this->protocol, 'encode'],
+				func_get_args()
+			);
+		} else {
+			// Raw message as buffer to send
+			$buffer = $message;
 		}
-		return $this->sendBuffer($message, $handleResending);
+		if ($result = @$this->client->send($buffer)) {
+			$this->logger->debug('Buffer sent, length {length}', [
+				'length' => strlen($buffer),
+				'buffer' => $buffer,
+			]);
+		} else {
+			$this->logger->error('Send failed: {reason}', [
+				'reason' => socket_strerror($this->client->errCode),
+			]);
+		}
+		return $result;
 	}
 
 	/*
@@ -214,41 +218,6 @@ abstract class AbstractClient extends AbstractWorker {
 		list($host, $port, $scheme) = parse_url_swoole($dsn);
 		$this->dsn = [$host, $port];
 		return $scheme;
-	}
-
-	/**
-	 * Send/Schedule buffer(encoded message) to endpoint.
-	 *
-	 * @param string $buffer The buffer to send
-	 * @param bool $resending Whether to resend message on failure
-	 * @return bool|int
-	 */
-	final public function sendBuffer(string $buffer, bool $resending = true) {
-		if ($result = @$this->client->send($buffer)) {
-			$this->logger->debug('Buffer sent, length {length}', [
-				'length' => strlen($buffer),
-				'buffer' => $buffer,
-			]);
-			return $result;
-		}
-		if (!in_array($this->client->errCode, self::RESEND_ERRNO)) {
-			if ($this->client->errCode !== 0) {
-				// Override resending to false due to errCode dissatisfaction
-				$resending = false;
-			}
-		}
-		if ($resending) {
-			// Schedule buffer resending
-			$interval = self::RETRY_SEND_INTERVAL;
-			// TODO: Out of memory(128M) after approx. 550 scheduled resendings
-			swoole_timer_after($interval * 1000, [$this, 'sendBuffer'], $buffer);
-			$retryMsg = ", resending in ${interval} seconds";
-		}
-		$this->logger->error('Send failed: {reason}{retry}', [
-			'reason' => socket_strerror($this->client->errCode),
-			'retry' => $retryMsg ?? null,
-		]);
-		return false;
 	}
 
 	/**
