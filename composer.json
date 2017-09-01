@@ -21,8 +21,8 @@
         "monolog/monolog": "^1.23"
     },
     "suggest": {
-        "bramus/monolog-colored-line-formatter": "~2.0",
-        "sentry/sentry": "^1.7"
+        "bramus/monolog-colored-line-formatter": "Colorize loggings printing to console",
+        "sentry/sentry": "Add error reporting functionality with sentry"
     },
     "autoload": {
         "psr-4": {

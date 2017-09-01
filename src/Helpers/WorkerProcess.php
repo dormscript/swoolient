@@ -150,8 +150,8 @@ class WorkerProcess extends Process {
 		// 	$worker->onWorkerStop();
 		// });
 		// Check parent process existence periodically
-		$interval = self::PARENT_CHECK_INTERVAL * 1000;
-		swoole_timer_tick($interval, function () use ($worker) {
+		$interval = env('PPID_CHECK_INTERVAL', self::PARENT_CHECK_INTERVAL);
+		swoole_timer_tick($interval * 1000, function () use ($worker) {
 			if (!$this->kill($this->ppid, 0)) {
 				// Parent missing, terminate manually as processes are not related
 				// $this->kill($this->pid, SIGABRT);
