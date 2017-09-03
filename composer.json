@@ -1,18 +1,11 @@
 {
     "name": "meanevo/swoolient",
-    "description": "A swoole manager for clients in multiple processes",
-    "keywords": [
-        "client",
-        "socket",
-        "swoole"
-    ],
+    "description": "A swoole clients manager in multiple processes",
     "type": "library",
+    "keywords": ["client", "socket", "swoole"],
     "license": "MIT",
     "authors": [
-        {
-            "name": "meanevo",
-            "email": "admin@meanevo.com"
-        }
+        { "name": "meanevo", "email": "admin@meanevo.com" }
     ],
     "require": {
         "php": ">=7.0.0",
@@ -20,9 +13,12 @@
         "vlucas/phpdotenv": "^2.4",
         "monolog/monolog": "^1.23"
     },
+    "require-dev": {
+        "phpunit/phpunit": "~5.0"
+    },
     "suggest": {
-        "bramus/monolog-colored-line-formatter": "Colorize loggings printing to console",
-        "sentry/sentry": "Add error reporting functionality with sentry"
+        "bramus/monolog-colored-line-formatter": "Colorize logs printing to console",
+        "sentry/sentry": "Add error reporting support with sentry"
     },
     "autoload": {
         "psr-4": {
