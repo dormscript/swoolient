@@ -16,6 +16,12 @@ abstract class AbstractWorker implements WorkerInterface {
 	 * @var \Helpers\WorkerProcess
 	 */
 	protected $process;
+
+	/**
+	 * The pipe message listener.
+	 *
+	 * @var array
+	 */
 	private $waitingForPipe = [];
 
 	public function __construct($process) {
@@ -51,14 +57,10 @@ abstract class AbstractWorker implements WorkerInterface {
 	 * @param int $pipe
 	 * @return void
 	 */
-	public function onPipe($pipe) {
+	final public function onPipe($pipe) {
 		$payload = $this->process->read();
 		$message = $payload[0];
-		// Notify registered timer on message arriving at once
-		foreach ($this->waitingForPipe[$message] ?? [] as &$listener) {
-			call_user_func($listener);
-			unset($listener);
-		}
+		$this->notifyOnMessage($message);
 		if (is_callable([$this, $message])) {
 			// Call function named ${message} if exists
 			call_user_func_array([$this, $message], array_slice($payload, 1));
@@ -120,15 +122,44 @@ EOF;
 				},
 				is_callable($onTimeout) ? $onTimeout : $caller
 			);
-			$this->registerForPipeMessage($expected, function () use ($timerId) {
+			$this->registerOnPipeMessage($expected, function () use ($timerId) {
 				@swoole_timer_clear($timerId);
-			});
+			}, true);
 		}
 		call_user_func_array($caller, $callerArgs);
 	}
 
-	protected function registerForPipeMessage(string $message, callable $callback) {
+	/**
+	 * Register a callback on specified pipe message.
+	 *
+	 * @param string $message
+	 * @param callable callback
+	 * @param bool|null $onetime Whether is onetime listener or not,
+	 * leaving blank => let callback returning decide
+	 * @return void
+	 */
+	protected function registerOnPipeMessage(
+		string $message,
+		callable $callback,
+		bool $onetime = null
+	) {
+		if (is_bool($onetime)) {
+			$callback = function () use ($callback, $onetime) {
+				call_user_func($callback);
+				return $onetime;
+			};
+		}
 		$this->waitingForPipe[$message][] = $callback;
+	}
+
+	protected function notifyOnMessage(string $message) {
+		// Notify registered timers on message arriving
+		foreach ($this->waitingForPipe[$message] ?? [] as &$listener) {
+			if (call_user_func($listener)) {
+				// Onetime listener, deregister
+				unset($listener);
+			}
+		}
 	}
 
 }

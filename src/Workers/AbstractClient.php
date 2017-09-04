@@ -45,6 +45,13 @@ abstract class AbstractClient extends AbstractWorker {
 	 */
 	protected $client;
 
+	/**
+	 * The onConnect event listener.
+	 *
+	 * @var array
+	 */
+	private $waitingForConnection = [];
+
 	public function __construct() {
 		parent::__construct(...func_get_args());
 		// Initialize protocol if exists
@@ -92,6 +99,7 @@ abstract class AbstractClient extends AbstractWorker {
 			'dsn' => vsprintf('%1$s:%2$d', $this->dsn),
 			'src' => vsprintf('%2$s:%1$d', $this->client->getSockName()),
 		]);
+		$this->notifyOnConnect();
 	}
 
 	/**
@@ -252,6 +260,57 @@ abstract class AbstractClient extends AbstractWorker {
 			$this->close();
 		}
 		$this->connect();
+	}
+
+	/**
+	 * TODO: [registerOnConnect description]
+	 * @param  callable  $callback [description]
+	 * @param  bool|null $onetime  [description]
+	 * @return [type]              [description]
+	 */
+	protected function registerOnConnect(callable $callback, bool $onetime = null) {
+		if (is_bool($onetime)) {
+			$callback = function () use ($callback, $onetime) {
+				call_user_func($callback);
+				return $onetime;
+			};
+		}
+		$this->waitingForConnection[] = $callback;
+	}
+
+	protected function notifyOnConnect() {
+		// Notify registered listeners on connect
+		foreach ($this->waitingForConnection as &$listener) {
+			if (call_user_func($listener)) {
+				unset($listener);
+			}
+		}
+	}
+
+	/**
+	 * Register a ticker runs periodically while client is connected.
+	 *
+	 * @param int $interval
+	 * @param callable $callback
+	 * @param array|null $args
+	 * @return void
+	 */
+	protected function registerOnlineTicker(
+		int $interval,
+		callable $callback,
+		array $args = null
+	) {
+		$this->logger->debug('Scheduled an online time ticker');
+		swoole_timer_tick($interval, function ($timerId, $args) use ($callback) {
+			if (!$this->client->isConnected()) {
+				// Skip ticking at once
+				$this->logger->warn(
+					'Ticker skipped at once due to connectivity issues'
+				);
+				return false;
+			}
+			call_user_func($callback, $args);
+		}, $args);
 	}
 
 }
