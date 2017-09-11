@@ -65,8 +65,9 @@ class WorkerProcess extends Process {
 	 */
 	public function read($size = 2048) {
 		$message = parent::read($size);
+		$payload = Serialize::unpack($message);
 		// TODO: get rid of serialisation
-		return Serialize::unpack($message) ?: $message;
+		return !empty($payload[0]) ? $payload : (array) $message;
 	}
 
 	/**
