@@ -13,7 +13,7 @@ use MeanEVO\Swoolient\Workers\WorkerInterface;
 
 class WorkerProcess extends Process {
 
-	const PARENT_CHECK_INTERVAL = 0.1;
+	const PARENT_CHECK_INTERVAL = 3;
 
 	/**
 	 * The process payload's fully qualified name.
@@ -150,6 +150,7 @@ class WorkerProcess extends Process {
 		// 	$worker->onWorkerStop();
 		// });
 		// Check parent process existence periodically
+		// TODO: improve performance
 		$interval = env('PPID_CHECK_INTERVAL', self::PARENT_CHECK_INTERVAL);
 		swoole_timer_tick($interval * 1000, function () use ($worker) {
 			if (!$this->kill($this->ppid, 0)) {
