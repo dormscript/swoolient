@@ -62,7 +62,10 @@ abstract class AbstractMaster {
 			// Strip out worker name, then forward message to the worker involved
 			$message = $process->read();
 			if ($worker = $this->getWorkerByName($message[0])) {
-				$this->logger->debug('Forwarding message {1} to {0}', $message);
+				$this->logger->debug('Forwarding message {message} to {worker}', [
+					'message' => $message[1],
+					'worker' => substr(strrchr($message[0], '\\'), 1),
+				]);
 				$worker->write(...array_slice($message, 1));
 			} else {
 				$this->logger->warn('{0} is not a valid message destination', $message);

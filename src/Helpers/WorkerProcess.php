@@ -101,7 +101,7 @@ class WorkerProcess extends Process {
 	 * @return void
 	 */
 	public function exitAll(int $code = 0) {
-		$this->close();
+		@$this->close();
 		$this->kill($this->ppid, SIGTERM);
 		$this->exit($code);
 	}

@@ -2,16 +2,14 @@
 
 namespace MeanEVO\Swoolient\Workers;
 
+use ReflectionClass;
 use Swoole\Client;
 use MeanEVO\Swoolient\Protocols\ProtocolInterface;
 
 abstract class AbstractClient extends AbstractWorker {
 
-	const RETRY_CONN_INTERVAL = 15;
-	const CONN_ARGS = [
-		'package_max_length' => 2048000,	// Maximum protocol context length
-		'socket_buffer_size' => 1024 * 1024 * 2,	// 2MB buffer
-	];
+	const DSN_STRING = '';
+	const PROTOCOL_CLASS = null;
 	const RECOVER_ERRNO = [
 		SOCKET_ENETDOWN,		// Network is down
 		SOCKET_ENETUNREACH,		// Network is unreachable
@@ -25,25 +23,32 @@ abstract class AbstractClient extends AbstractWorker {
 	];
 
 	/**
-	 * The destination address to connect.
-	 *
-	 * @var array
-	 */
-	protected $dsn;
-
-	/**
-	 * The connection protocol to use.
-	 *
-	 * @var ProtocolInterface
-	 */
-	protected $protocol;
-
-	/**
 	 * The client instance.
 	 *
 	 * @var Client
 	 */
 	protected $client;
+
+	/**
+	 * The internet protocol.
+	 *
+	 * @var oneof SWOOLE_TCP(6)|UDP(6)
+	 */
+	protected $scheme = SWOOLE_TCP;
+
+	/**
+	 * The destination address to connect.
+	 *
+	 * @var array
+	 */
+	private $dsn;
+
+	/**
+	 * The connection protocol instance.
+	 *
+	 * @var ProtocolInterface
+	 */
+	private $protocol;
 
 	/**
 	 * The onConnect event listener.
@@ -54,20 +59,20 @@ abstract class AbstractClient extends AbstractWorker {
 
 	public function __construct() {
 		parent::__construct(...func_get_args());
-		// Initialize protocol if exists
-		if (is_subclass_of($this->protocol, ProtocolInterface::class)) {
-			$this->protocol = new $this->protocol();
-		} else {
-			unset($this->protocol);
+		// Initialize protocol if valid		// Initialize protocol if exists
+		if ($protocolClass = static::PROTOCOL_CLASS) {
+			if (is_subclass_of($protocolClass, ProtocolInterface::class)) {
+				$this->protocol = new $protocolClass();
+			}
 		}
-		$scheme = $this->setAddress($this->dsn);
+		$this->setDestination(static::DSN_STRING);
 		// Initialize client
-		$this->client = new Client($scheme, SWOOLE_SOCK_ASYNC);
-		$this->client->set($this->protocol->arguments ?? [] + self::CONN_ARGS);
+		$this->client = new Client($this->scheme, SWOOLE_SOCK_ASYNC);
+		$this->client->set($this->protocol->arguments ?? []);
 		$this->client->on('connect', [$this, 'onConnect']);
 		$this->client->on('receive', [$this, 'onReceive']);
 		$this->client->on('error', [$this, 'onError']);
-		if (!in_array($scheme, [SWOOLE_UDP, SWOOLE_UDP6])) {
+		if (!in_array($this->scheme, [SWOOLE_UDP, SWOOLE_UDP6])) {
 			$this->client->on('close', [$this, 'onClose']);
 		}
 	}
@@ -135,10 +140,14 @@ abstract class AbstractClient extends AbstractWorker {
 	public function onError(Client $client) {
 		if (in_array($client->errCode, self::RECOVER_ERRNO)) {
 			// Schedule client reconnecting
-			$interval = env('RETRY_CONN_INTERVAL', self::RETRY_CONN_INTERVAL);
-			swoole_timer_after($interval * 1000, [$this, 'connect']);
-			$this->logger->error(socket_strerror($client->errCode) . '{retry}', [
-				'retry' => ", reconnecting in ${interval} seconds",
+			if ($interval = $this->protocol::RETRY_CONN_INTERVAL ?? false) {
+				swoole_timer_after($interval * 1000, [$this, 'connect']);
+			} else {
+				$this->connect();
+			}
+			$this->logger->error('{reason}, reconnecting{after}', [
+				'reason' => socket_strerror($client->errCode),
+				'after' => $interval ? " in ${interval} seconds" : null,
 			]);
 		} else {
 			$this->logger->error(socket_strerror($client->errCode));
@@ -168,6 +177,10 @@ abstract class AbstractClient extends AbstractWorker {
 	 * @return bool
 	 */
 	public function connect() {
+		if (!is_array($this->dsn)) {
+			$this->logger->alert('Connection destination not set');
+			return false;
+		}
 		return $this->client->connect(...$this->dsn);
 	}
 
@@ -213,9 +226,9 @@ abstract class AbstractClient extends AbstractWorker {
 	 * @param array|string $dsn
 	 * @return void|int SWOOLE_SOCK_X(SCHEME)
 	 */
-	public function setAddress($dsn) {
+	public function setDestination($dsn) {
 		if (is_array($dsn)) {
-			$dsn = $dsn[mt_rand(0, count($dsn) - 1)];
+			$dsn = $dsn[array_rand($dsn)];
 		}
 		if (!filter_var($dsn, FILTER_VALIDATE_URL)) {
 			if (!filter_var(env($dsn), FILTER_VALIDATE_URL)) {
@@ -225,7 +238,7 @@ abstract class AbstractClient extends AbstractWorker {
 		}
 		list($host, $port, $scheme) = parse_url_swoole($dsn);
 		$this->dsn = [$host, $port];
-		return $scheme;
+		$this->scheme = $scheme;
 	}
 
 	/**
@@ -309,7 +322,7 @@ abstract class AbstractClient extends AbstractWorker {
 				);
 				return false;
 			}
-			call_user_func($callback, $args);
+			call_user_func_array($callback, $args);
 		}, $args);
 	}
 
