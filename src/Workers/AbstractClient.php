@@ -322,7 +322,7 @@ abstract class AbstractClient extends AbstractWorker {
 				);
 				return false;
 			}
-			call_user_func_array($callback, $args);
+			call_user_func_array($callback, $args ?: []);
 		}, $args);
 	}
 
