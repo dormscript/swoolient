@@ -10,6 +10,7 @@ abstract class AbstractClient extends AbstractWorker {
 
 	const DSN_STRING = '';
 	const PROTOCOL_CLASS = null;
+	const RETRY_CONN_INTERVAL = 3;
 	const RECOVER_ERRNO = [
 		SOCKET_ENETDOWN,		// Network is down
 		SOCKET_ENETUNREACH,		// Network is unreachable
@@ -140,7 +141,7 @@ abstract class AbstractClient extends AbstractWorker {
 	public function onError(Client $client) {
 		if (in_array($client->errCode, self::RECOVER_ERRNO)) {
 			// Schedule client reconnecting
-			if ($interval = $this->protocol::RETRY_CONN_INTERVAL ?? false) {
+			if ($interval = static::RETRY_CONN_INTERVAL ?: false) {
 				swoole_timer_after($interval * 1000, [$this, 'connect']);
 			} else {
 				$this->connect();
