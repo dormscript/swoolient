@@ -13,7 +13,7 @@ abstract class AbstractWorker implements WorkerInterface {
 	/**
 	 * The process worker running with.
 	 *
-	 * @var \Helpers\WorkerProcess
+	 * @var \MeanEVO\Swoolient\Helpers\WorkerProcess
 	 */
 	protected $process;
 

@@ -14,6 +14,7 @@ use MeanEVO\Swoolient\Workers\WorkerInterface;
 class WorkerProcess extends Process {
 
 	const PARENT_CHECK_INTERVAL = 3;
+	const EXIT_SIGNAL = SIGABRT;
 
 	/**
 	 * The process payload's fully qualified name.
@@ -66,7 +67,6 @@ class WorkerProcess extends Process {
 	public function read($size = 2048) {
 		$message = parent::read($size);
 		$payload = Serialize::unpack($message);
-		// TODO: get rid of serialisation
 		return !empty($payload[0]) ? $payload : (array) $message;
 	}
 
@@ -74,7 +74,7 @@ class WorkerProcess extends Process {
 	 * {@inheritdoc}
 	 */
 	public function write($data) {
-		// Stream may got merged in underlayer => usleep(10) or $pipe => SOCK_DGRAM;
+		// Stream may got merged in underlayer => using SOCK_DGRAM;
 		return parent::write(Serialize::pack(func_get_args(), true));
 	}
 
@@ -135,21 +135,15 @@ class WorkerProcess extends Process {
 	}
 
 	protected function setUpListeners($worker) {
-		$this->signal(SIGABRT, function () use ($worker) {
+		$this->signal(static::EXIT_SIGNAL, function ($signo) use ($worker) {
 			// Deregister signal handler as we have been notified
-			$this->signal(SIGABRT, null);
+			$this->signal($signo, null);
 			$worker->onWorkerStop();
 			$this->exit(0);
 		});
 		// TODO: BUGGY - Capture variable not working with SIGTERM signal on macOS
 		// Alternate 1: use exit function from swoole_process plus shutdown handler
 		// Alternate 2: disable SIGTERM listener, use SIGABRT for graceful shutdown
-		// $this->signal(SIGTERM, function () {
-		// 	$this->exit(0);
-		// });
-		// register_shutdown_function(function () use ($worker) {
-		// 	$worker->onWorkerStop();
-		// });
 		// Check parent process existence periodically
 		// TODO: improve performance
 		$interval = env('PPID_CHECK_INTERVAL', self::PARENT_CHECK_INTERVAL);

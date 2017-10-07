@@ -19,7 +19,7 @@ class LoggerFactory {
 	 * Initialize logger for master, worker process.
 	 *
 	 * @param string $name The logger channel
-	 * @return Psr\Log\LoggerInterface
+	 * @return \Psr\Log\LoggerInterface
 	 */
 	public static function create(string $channel) {
 		$logger = new Logger($channel);

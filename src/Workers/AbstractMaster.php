@@ -2,51 +2,43 @@
 
 namespace MeanEVO\Swoolient\Workers;
 
-use Exception;
 use Psr\Log\LoggerAwareTrait;
-use Psr\Log\LoggerInterface;
-use Swoole\Event;
 use Swoole\Process;
-use MeanEVO\Swoolient\Helpers\NullLogger;
+use MeanEVO\Swoolient\Helpers\LoggerFactory;
 use MeanEVO\Swoolient\Helpers\WorkerProcess;
-use MeanEVO\Swoolient\Workers\WorkerInterface;
 
-abstract class AbstractMaster {
+abstract class AbstractMaster implements WorkerInterface {
 
 	use LoggerAwareTrait;
+	use HasSubworkerTrait, CanForwardPipe;
 
-	protected $workers;
+	public function __construct(WorkerProcess $process = null) {
+		$name = empty($process) ? 'master' : $process->name;
+		@cli_set_process_title(vsprintf('%s:%s', [
+			env('APP_NAME'),
+			strtoupper($name)
+		]));
+		$this->setLogger($this->makeLogger(ucfirst($name)));
+		if (empty($process)) {
+			// Running as dedicated process
+			// Trigger worker start event manually
+			$this->onWorkerStart();
+			// Handle sigterm manually
+			Process::signal(SIGTERM, [$this, 'onWorkerStop']);
+		}
+	}
 
-	public function __construct() {
-		@cli_set_process_title(env('APP_NAME') . ':MASTER');
+	/**
+	 * {@inheritdoc}
+	 */
+	public function onWorkerStart() {
 		$workers = $this->startAll();
-		$this->setUpListeners();
+		$this->daemonWorkers();
 		foreach ($workers as $worker) {
-			$this->setUpPipeForwarder($worker);
+			$this->registerPipeForwarder($worker);
 			$this->workers[$worker->pid] = $worker;
 		}
-		$this->setLogger($this->makeLogger());
 	}
-
-	/**
-	 * Start worker by fully qualified class name.
-	 *
-	 * @param string $fqn The worker class's fully qualified name
-	 * @return WorkerProcess
-	 */
-	public function startOne(string $fqn) {
-		$process = new WorkerProcess($fqn);
-		$process->start();
-		return $process;
-	}
-
-	/**
-	 * Start all workers.
-	 * Normally by calling startOne($fqn) several times.
-	 *
-	 * @return array<WorkerProcess>
-	 */
-	abstract protected function startAll();
 
 	/*
 	|--------------------------------------------------------------------------
@@ -54,83 +46,8 @@ abstract class AbstractMaster {
 	|--------------------------------------------------------------------------
 	*/
 
-	protected function makeLogger($logger = null) {
-		if (!$logger instanceof LoggerInterface) {
-			$logger = new NullLogger($this);
-		}
-		return $logger;
-	}
-
-	private function setUpPipeForwarder($process) {
-		// Set a message listener for pipe
-		Event::add($process->pipe, function ($pipe) use ($process) {
-			// Strip out worker name, then forward message to the worker involved
-			$message = $process->read();
-			if ($worker = $this->getWorkerByName($message[0])) {
-				$this->logger->debug('Forwarding message {message} to {worker}', [
-					'message' => $message[1],
-					'worker' => substr(strrchr($message[0], '\\'), 1),
-				]);
-				$worker->write(...array_slice($message, 1));
-			} else {
-				$this->logger->warn('{0} is not a valid message destination', $message);
-			}
-		});
-	}
-
-	private function getWorkerByName(string $name) {
-		foreach ($this->workers as $pid => $worker) {
-			if ($name !== $worker->fqn) {
-				continue;
-			}
-			return $worker;
-		}
-	}
-
-	private function setUpListeners() {
-		Process::signal(SIGTERM, function () {
-			// Deregister callback on SIGCHLD signal
-			// Process::signal(SIGCHLD, null);
-			foreach ($this->workers as $worker) {
-				Process::kill($worker->pid, SIGABRT);
-			}
-			exit();
-		});
-		// Daemon child workers, restart process if needed
-		Process::signal(SIGCHLD, function () {
-			while ($info = Process::wait(false)) {
-				extract($info);	// ['code' => int, 'pid' => int, 'signal' => int]
-				$worker = $this->workers[$pid];
-				// Remove exited worker handler reference
-				unset($this->workers[$pid]);
-				if ($signal > 0) {
-					$reason = 'signal ' . $signal;
-				} else {
-					$reason = 'code ' . $code;
-				}
-				// if (empty($reason)) {
-				// 	// Worker initiated exit aka graceful shutdown
-				// 	$this->logger->notice('Worker-{name}({pid}) exited gracefully', [
-				// 		'name' => $worker->name,
-				// 		'pid' => $pid,
-				// 	]);
-				// 	break;
-				// }
-				// Schedule process restarting
-				$this->logger->critical(
-					'Worker-{name}({pid}) exited with {reason}, restarting...',
-					[
-						'name' => $worker->name,
-						'pid' => $pid,
-						'reason' => $reason ?? 'exit code 0',
-					]
-				);
-				// $worker = $this->startOne($worker->fqn);
-				// $this->workers[$worker->pid] = $worker;
-				$pid = $worker->start();
-				$this->workers[$pid] = $worker;
-			}
-		});
+	protected function makeLogger(string $name) {
+		return LoggerFactory::create($name);
 	}
 
 }
