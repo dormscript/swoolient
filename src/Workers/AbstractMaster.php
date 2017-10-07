@@ -4,9 +4,10 @@ namespace MeanEVO\Swoolient\Workers;
 
 use Exception;
 use Psr\Log\LoggerAwareTrait;
-use Psr\Log\NullLogger;
+use Psr\Log\LoggerInterface;
 use Swoole\Event;
 use Swoole\Process;
+use MeanEVO\Swoolient\Helpers\NullLogger;
 use MeanEVO\Swoolient\Helpers\WorkerProcess;
 use MeanEVO\Swoolient\Workers\WorkerInterface;
 
@@ -24,10 +25,7 @@ abstract class AbstractMaster {
 			$this->setUpPipeForwarder($worker);
 			$this->workers[$worker->pid] = $worker;
 		}
-		if (!$this->logger) {
-			echo 'No logger defined'. PHP_EOL;
-			$this->setLogger(new NullLogger);
-		}
+		$this->setLogger($this->makeLogger());
 	}
 
 	/**
@@ -55,6 +53,13 @@ abstract class AbstractMaster {
 	| Helpers
 	|--------------------------------------------------------------------------
 	*/
+
+	protected function makeLogger($logger = null) {
+		if (!$logger instanceof LoggerInterface) {
+			$logger = new NullLogger($this);
+		}
+		return $logger;
+	}
 
 	private function setUpPipeForwarder($process) {
 		// Set a message listener for pipe
